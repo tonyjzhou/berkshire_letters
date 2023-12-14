@@ -41,10 +41,13 @@ def extract_letter_links(soup):
 
 def download_letters(letter_links, letters_dir):
     """Download each letter from the list of letter links and log possible errors."""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+
     for letter_link in letter_links:
         letter_url = 'https://www.berkshirehathaway.com/letters/' + letter_link
         try:
-            letter_response = requests.get(letter_url)
+            letter_response = requests.get(letter_url, headers=headers)
             letter_response.raise_for_status()  # Raises HTTPError for bad HTTP responses
 
             letter_path = os.path.join(letters_dir, os.path.basename(letter_link))
