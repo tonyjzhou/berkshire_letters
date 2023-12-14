@@ -31,18 +31,41 @@ def get_soup(url):
 
 def extract_letter_links(soup):
     """Extract and return letter links from the soup object."""
-    return [link.get('href') for link in soup.find_all('a') if link.get('href') and link.get('href').endswith('.pdf')]
+    letter_links = []
+    for link in soup.find_all('a'):
+        href = link.get('href')
+        if href and (href.endswith('.pdf') or href.endswith('.html')):
+            letter_links.append(href)
+    return letter_links
 
 
 def download_letters(letter_links, letters_dir):
-    """Download each letter from the list of letter links."""
+    """Download each letter from the list of letter links and log possible errors."""
     for letter_link in letter_links:
         letter_url = 'https://www.berkshirehathaway.com/letters/' + letter_link
-        letter_response = requests.get(letter_url)
-        if letter_response.status_code == 200:
+        try:
+            letter_response = requests.get(letter_url)
+            letter_response.raise_for_status()  # Raises HTTPError for bad HTTP responses
+
             letter_path = os.path.join(letters_dir, os.path.basename(letter_link))
-            with open(letter_path, 'wb') as file:
-                file.write(letter_response.content)
+            mode = 'wb' if letter_link.endswith('.pdf') else 'w'
+            content = letter_response.content if letter_link.endswith('.pdf') else letter_response.text
+
+            with open(letter_path, mode) as file:
+                file.write(content)
+            logging.info(f"Downloaded and saved {letter_link}")
+        except requests.exceptions.HTTPError as http_err:
+            logging.error(f"HTTP error occurred while downloading {letter_link}: {http_err}")
+        except requests.exceptions.ConnectionError as conn_err:
+            logging.error(f"Connection error occurred while downloading {letter_link}: {conn_err}")
+        except requests.exceptions.Timeout as timeout_err:
+            logging.error(f"Timeout error occurred while downloading {letter_link}: {timeout_err}")
+        except requests.exceptions.RequestException as req_err:
+            logging.error(f"Request error occurred while downloading {letter_link}: {req_err}")
+        except IOError as io_err:
+            logging.error(f"IO error occurred while writing {letter_link}: {io_err}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred while downloading or writing {letter_link}: {e}")
 
 
 def create_zip_file(source_dir, zip_path):
@@ -74,7 +97,7 @@ def main():
         return
 
     letter_links = extract_letter_links(soup)
-    logging.debug("Extracted letter links.")
+    logging.debug(f"Extracted letter links: {letter_links}")
 
     download_letters(letter_links, letters_dir)
     logging.debug("Downloaded all letters.")
