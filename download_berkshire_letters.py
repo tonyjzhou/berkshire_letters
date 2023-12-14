@@ -4,7 +4,6 @@ import argparse
 import logging
 import os
 import zipfile
-
 import requests
 from bs4 import BeautifulSoup
 
@@ -42,10 +41,33 @@ def extract_letter_links(soup):
     return letter_links
 
 
-def find_actual_links(html_content):
-    """Parse HTML content to find the actual link to the letter."""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    return extract_letter_links(soup)
+def is_small_html_file(response):
+    """Check if the response is a small HTML file that likely contains indirect links."""
+    return response.url.endswith('.html') and len(response.content) < SMALL_FILE_SIZE
+
+
+def download_file(url, headers):
+    """Download a file from the URL and return the response object."""
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        logging.error(f"Error occurred while downloading {url}: {e}")
+        return None
+
+
+def save_file(response, letters_dir):
+    """Save the content of the response to a file."""
+    if response:
+        file_url = response.url
+        letter_path = os.path.join(letters_dir, os.path.basename(file_url))
+        mode = 'wb' if file_url.endswith('.pdf') else 'w'
+        content = response.content if mode == 'wb' else response.text
+
+        with open(letter_path, mode) as file:
+            file.write(content)
+        logging.info(f"Downloaded and saved {file_url} to {letter_path}")
 
 
 def download_letters(letter_links, letters_dir):
@@ -54,43 +76,32 @@ def download_letters(letter_links, letters_dir):
 
     for letter_link in letter_links:
         letter_url = BASE_URL + "/letters/" + letter_link if not letter_link.startswith('http') else letter_link
-        try:
-            letter_response = requests.get(letter_url, headers=headers)
-            letter_response.raise_for_status()
+        if letter_link.startswith('/'):
+            letter_url = BASE_URL + letter_link
 
-            if letter_url.endswith('.html') and len(letter_response.content) < SMALL_FILE_SIZE:
-                logging.debug(f"Looking for actual links for {letter_url}")
-                actual_links = find_actual_links(letter_response.text)
-
-                for actual_link in actual_links:
-                    letter_url = BASE_URL + "/letters/" + actual_link if not actual_link.startswith(
-                        'http') else actual_link
-                    if actual_link.startswith('/'):
-                        letter_url = BASE_URL + actual_link
-
-                    if BASE_URL in letter_url:
-                        logging.debug(f"Downloading from {letter_url}\n")
-                        letter_response = requests.get(letter_url, headers=headers)
-                        letter_response.raise_for_status()
-
-            letter_path = os.path.join(letters_dir, os.path.basename(letter_url))
-            mode = 'wb' if letter_url.endswith('.pdf') else 'w'
-            content = letter_response.content if mode == 'wb' else letter_response.text
-
-            with open(letter_path, mode) as file:
-                file.write(content)
-            logging.info(f"Downloaded and saved {letter_url} to {letter_path}")
-        except requests.RequestException as e:
-            logging.error(f"Error occurred while downloading {letter_link}: {e}")
+        letter_response = download_file(letter_url, headers)
+        if is_small_html_file(letter_response):
+            logging.debug(f"Looking for actual links for {letter_url}")
+            actual_links = extract_letter_links(BeautifulSoup(letter_response.text, 'html.parser'))
+            for actual_link in actual_links:
+                actual_url = BASE_URL + "/letters/" + actual_link if not actual_link.startswith(
+                    'http') else actual_link
+                if BASE_URL in actual_url:
+                    save_file(download_file(actual_url, headers), letters_dir)
+        else:
+            save_file(letter_response, letters_dir)
 
 
 def create_zip_file(source_dir, zip_path):
     """Create a zip file from all files in the source directory."""
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for root, _, files in os.walk(source_dir):
-            for file in files:
-                zipf.write(os.path.join(root, file), file)
-        logging.info(f"Created zip file at {zip_path}")
+    try:
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for root, _, files in os.walk(source_dir):
+                for file in files:
+                    zipf.write(os.path.join(root, file), file)
+            logging.info(f"Created zip file at {zip_path}")
+    except Exception as e:
+        logging.error(f"Failed to create zip file: {e}")
 
 
 def main():
