@@ -10,10 +10,11 @@ from bs4 import BeautifulSoup
 
 # Constants
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
-BASE_URL = "https://www.berkshirehathaway.com/letters/"
-LETTERS_PAGE = BASE_URL + "letters.html"
+BASE_URL = "https://www.berkshirehathaway.com"
+LETTERS_PAGE = BASE_URL + "/letters/letters.html"
 LETTERS_DIR = 'Berkshire_Hathaway_Letters'
 ZIP_PATH = 'Berkshire_Hathaway_Letters.zip'
+SMALL_FILE_SIZE = 3 * 1024  # 3KB
 
 
 def setup_logging(debug_mode):
@@ -41,23 +42,44 @@ def extract_letter_links(soup):
     return letter_links
 
 
+def find_actual_links(html_content):
+    """Parse HTML content to find the actual link to the letter."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    return extract_letter_links(soup)
+
+
 def download_letters(letter_links, letters_dir):
     """Download each letter from the list of letter links and log possible errors."""
     headers = {'User-Agent': USER_AGENT}
 
     for letter_link in letter_links:
-        letter_url = BASE_URL + letter_link if not letter_link.startswith('http') else letter_link
+        letter_url = BASE_URL + "/letters/" + letter_link if not letter_link.startswith('http') else letter_link
         try:
             letter_response = requests.get(letter_url, headers=headers)
             letter_response.raise_for_status()
 
-            letter_path = os.path.join(letters_dir, os.path.basename(letter_link))
-            mode = 'wb' if letter_link.endswith('.pdf') else 'w'
-            content = letter_response.content if letter_link.endswith('.pdf') else letter_response.text
+            if letter_url.endswith('.html') and len(letter_response.content) < SMALL_FILE_SIZE:
+                logging.debug(f"Looking for actual links for {letter_url}")
+                actual_links = find_actual_links(letter_response.text)
+
+                for actual_link in actual_links:
+                    letter_url = BASE_URL + "/letters/" + actual_link if not actual_link.startswith(
+                        'http') else actual_link
+                    if actual_link.startswith('/'):
+                        letter_url = BASE_URL + actual_link
+
+                    if BASE_URL in letter_url:
+                        logging.debug(f"Downloading from {letter_url}\n")
+                        letter_response = requests.get(letter_url, headers=headers)
+                        letter_response.raise_for_status()
+
+            letter_path = os.path.join(letters_dir, os.path.basename(letter_url))
+            mode = 'wb' if letter_url.endswith('.pdf') else 'w'
+            content = letter_response.content if mode == 'wb' else letter_response.text
 
             with open(letter_path, mode) as file:
                 file.write(content)
-            logging.info(f"Downloaded and saved {letter_link}")
+            logging.info(f"Downloaded and saved {letter_url} to {letter_path}")
         except requests.RequestException as e:
             logging.error(f"Error occurred while downloading {letter_link}: {e}")
 
