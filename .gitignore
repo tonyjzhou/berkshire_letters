@@ -1,5 +1,6 @@
 # Project specific
-Berkshire_Hathaway_Letters/
+Berkshire_Hathaway_Letters*
+response.html
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

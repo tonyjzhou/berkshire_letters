@@ -4,11 +4,12 @@ import argparse
 import logging
 import os
 import zipfile
+
 import requests
 from bs4 import BeautifulSoup
 
 # Constants
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)'
 BASE_URL = "https://www.berkshirehathaway.com"
 LETTERS_PAGE = BASE_URL + "/letters/letters.html"
 LETTERS_DIR = 'Berkshire_Hathaway_Letters'
@@ -22,13 +23,35 @@ def setup_logging(debug_mode):
     logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
+def safe_decode(content):
+    """Safely decode the response content."""
+    try:
+        # First, try decoding with UTF-8
+        return content.decode('utf-8')
+    except UnicodeDecodeError:
+        # Fall back to ISO-8859-1 if UTF-8 fails
+        return content.decode('iso-8859-1')
+
+
 def get_soup(url):
     """Fetch and parse HTML content from the given URL."""
+    logging.debug(f'url={url}')
+
     headers = {'User-Agent': USER_AGENT}
     try:
         response = requests.get(url, headers=headers)
+
         response.raise_for_status()
-        return BeautifulSoup(response.text, 'html.parser')
+
+        # Use safe_decode to handle different encodings
+        decoded_content = safe_decode(response.content)
+        soup = BeautifulSoup(decoded_content, 'html.parser')
+
+        # Debugging: Save the decoded HTML to inspect if necessary
+        with open('response.html', 'w', encoding='utf-8') as f:
+            f.write(soup.prettify())
+
+        return soup
     except requests.RequestException as e:
         logging.error(f"Request failed: {e}")
         return None
@@ -36,6 +59,7 @@ def get_soup(url):
 
 def extract_letter_links(soup):
     """Extract and return letter links from the soup object."""
+    logging.debug(f"soup.find_all('a')={soup.find_all('a')}")
     letter_links = [link.get('href') for link in soup.find_all('a') if
                     link.get('href') and (link.get('href').endswith('.pdf') or link.get('href').endswith('.html'))]
     return letter_links
